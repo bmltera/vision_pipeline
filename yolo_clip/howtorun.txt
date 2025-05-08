@@ -1,0 +1,1 @@
+python main.py --input_video input/test01.mp4 --yolo_weights models/bestyolo.pt --conf_thres 0.50 --output_dir output
