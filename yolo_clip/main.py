@@ -6,33 +6,7 @@ Detects graffiti and trash in video frames using YOLO, then refines each detecti
 with CLIP image–text similarity. Outputs original and annotated frames, an annotated
 video, plus a run report including timing and confidence metrics.
 
-Toggleable variables (edit below or override via CLI):
-    --input_video         Path to the input video file.
-    --yolo_weights        Path to a YOLOv8 PyTorch-format weight file.
-    --clip_model          Name of the CLIP model to load with open_clip (e.g., "ViT-B-32").
-    --conf_thres          YOLO confidence threshold (0-1).
-    --output_dir          Root folder where runs/ will be created.
-
-Output structure per run (timestamped sub-folder):
-    run_YYYY-MM-DD_HH-MM-SS/
-        original_frames/     raw extracted video frames
-        annotated_frames/    frames with YOLO + CLIP annotations
-        annotated_video.mp4  same video with all annotations
-        details.txt          run statistics, frame detections, and timing metrics
-
-Dependencies
-~~~~~~~~~~~~
-* ultralytics               # for YOLOv8 inference
-* open_clip-torch           # for CLIP (https://github.com/mlfoundations/open_clip)
-* torch, torchvision
-* opencv-python
-* tqdm
-* pillow
-
-Install with:
-    pip install ultralytics open_clip_torch opencv-python tqdm pillow
-
-Example usage:
+Usage example:
     python vision_pipeline.py --input_video ./demo.mp4 \
         --yolo_weights ./models/bestyolo.pt --clip_model ViT-B-32 --conf_thres 0.50
 """
@@ -59,10 +33,6 @@ try:
 except ImportError as e:
     sys.exit("[ERROR] open_clip_torch not found. Install with `pip install open_clip_torch`.\n" + str(e))
 
-# ────────────────────────────────────────────────────────────────────────────────
-# Utility functions
-# ────────────────────────────────────────────────────────────────────────────────
-
 def make_run_dirs(root: Path) -> dict[str, Path]:
     ts = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     run_dir = root / f"run_{ts}"
@@ -71,7 +41,6 @@ def make_run_dirs(root: Path) -> dict[str, Path]:
     orig_dir.mkdir(parents=True, exist_ok=False)
     ann_dir.mkdir(parents=True, exist_ok=False)
     return {"run": run_dir, "orig": orig_dir, "ann": ann_dir}
-
 
 def load_clip(model_name: str = "ViT-B-32", device: str | torch.device | None = None):
     model_name = model_name.replace("/", "-")
@@ -82,7 +51,6 @@ def load_clip(model_name: str = "ViT-B-32", device: str | torch.device | None = 
     model = model.to(device)
     tokenizer = open_clip.get_tokenizer(model_name)
     return model, preprocess, tokenizer, device
-
 
 def draw_box(image: Image.Image, xyxy, label_text: str, color=(255, 0, 0)) -> Image.Image:
     draw = ImageDraw.Draw(image)
@@ -99,13 +67,8 @@ def draw_box(image: Image.Image, xyxy, label_text: str, color=(255, 0, 0)) -> Im
     draw.text((x1, y1 - text_h), label_text, fill=(255, 255, 255), font=font)
     return image
 
-# ────────────────────────────────────────────────────────────────────────────────
-# Main pipeline
-# ────────────────────────────────────────────────────────────────────────────────
-
 def main(opts: argparse.Namespace):
     start_time = time.perf_counter()
-
     dirs = make_run_dirs(Path(opts.output_dir))
     run_dir, orig_dir, ann_dir = dirs.values()
 
@@ -117,16 +80,14 @@ def main(opts: argparse.Namespace):
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    total_yolo_time = 0.0
-    total_clip_time = 0.0
-    total_yolo_conf = 0.0
-    total_clip_conf = 0.0
+    total_yolo_time = total_clip_time = 0.0
+    total_yolo_conf = total_clip_conf = 0.0
     detection_frames = []
 
     model = YOLO(opts.yolo_weights)
     model.fuse()
-    model.conf = opts.conf_thres  # type: ignore[attr-defined]
 
+    # Load CLIP
     clip_model, clip_preprocess, clip_tokenizer, device = load_clip(opts.clip_model)
     clip_labels = [
         "graffiti on public objects",
@@ -146,18 +107,33 @@ def main(opts: argparse.Namespace):
         if not ret:
             break
 
+        # Save original frame
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pil_frame = Image.fromarray(frame_rgb)
         orig_path = orig_dir / f"frame_{idx:06d}.jpg"
         pil_frame.save(orig_path)
 
+        # YOLO inference with explicit conf threshold
         yolo_start = time.perf_counter()
-        results = model.predict(source=frame_rgb, verbose=False)[0]
+        results = model.predict(
+            source=frame_rgb,
+            conf=opts.conf_thres,         # explicit YOLO conf
+            verbose=False
+        )[0]
         yolo_end = time.perf_counter()
         total_yolo_time += (yolo_end - yolo_start)
 
-        detections = results.boxes.data.cpu().numpy()
-        if detections.shape[0] == 0:
+        # Extract and manually filter detections
+        dets = results.boxes.data.cpu().numpy()
+        if dets.size == 0:
+            shutil.copy(orig_path, ann_dir / orig_path.name)
+            continue
+
+        # safety-net threshold
+        mask = dets[:, 4] >= opts.conf_thres
+        dets = dets[mask]
+
+        if dets.shape[0] == 0:
             shutil.copy(orig_path, ann_dir / orig_path.name)
             continue
 
@@ -165,8 +141,8 @@ def main(opts: argparse.Namespace):
         frames_with_det += 1
         annot_img = pil_frame.copy()
 
-        for det in detections:
-            x1, y1, x2, y2, conf, cls = det.tolist()
+        # CLIP refinement + drawing
+        for x1, y1, x2, y2, conf, cls in dets.tolist():
             total_yolo_conf += conf
             cls = int(cls)
 
@@ -194,6 +170,7 @@ def main(opts: argparse.Namespace):
 
     cap.release()
 
+    # Reassemble annotated video
     annotated_video_path = run_dir / "annotated_video.mp4"
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out_vid = cv2.VideoWriter(str(annotated_video_path), fourcc, fps, (width, height))
@@ -203,14 +180,14 @@ def main(opts: argparse.Namespace):
         out_vid.write(img)
     out_vid.release()
 
+    # Summarize metrics
     end_time = time.perf_counter()
     total_time = end_time - start_time
-
-    avg_yolo_ms = (total_yolo_time / frame_count) * 1000 if frame_count > 0 else 0
-    avg_clip_ms = (total_clip_time / frame_count) * 1000 if frame_count > 0 else 0
-    avg_inf_ms = ((total_yolo_time + total_clip_time) / frame_count) * 1000 if frame_count > 0 else 0
-    avg_yolo_conf = (total_yolo_conf / total_dets) if total_dets > 0 else 0
-    avg_clip_conf = (total_clip_conf / total_dets) if total_dets > 0 else 0
+    avg_yolo_ms = (total_yolo_time / frame_count) * 1000 if frame_count else 0
+    avg_clip_ms = (total_clip_time / frame_count) * 1000 if frame_count else 0
+    avg_inf_ms = ((total_yolo_time + total_clip_time) / frame_count) * 1000 if frame_count else 0
+    avg_yolo_conf = (total_yolo_conf / total_dets) if total_dets else 0
+    avg_clip_conf = (total_clip_conf / total_dets) if total_dets else 0
 
     details = {
         "input_video": str(opts.input_video),
@@ -235,16 +212,14 @@ def main(opts: argparse.Namespace):
 
     print(f"[✓] Finished. Results saved to: {run_dir}")
 
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="2-Stage graffiti/trash detector")
     parser.add_argument("--input_video", type=Path, required=True, help="Path to input video")
     parser.add_argument("--yolo_weights", type=Path, required=True, help="YOLO weights .pt file")
-    parser.add_argument("--clip_model", type=str, default="ViT-B-32", help="CLIP model name (use dash, not slash)")
+    parser.add_argument("--clip_model", type=str, default="ViT-B-32", help="CLIP model name (dash, not slash)")
     parser.add_argument("--conf_thres", type=float, default=0.25, help="YOLO confidence threshold")
     parser.add_argument("--output_dir", type=Path, default="./runs", help="Root output directory")
     return parser.parse_args()
-
 
 if __name__ == "__main__":
     args = parse_args()
