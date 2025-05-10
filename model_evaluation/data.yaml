@@ -1,0 +1,6 @@
+path: C:\Users\chrap\Documents\code\vision_pipeline\model_evaluation
+train: dataset/images
+val: dataset/images
+nc: 1
+names:
+- graffiti
