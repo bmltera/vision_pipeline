@@ -1,0 +1,5 @@
+# virtual environment setup
+pip install transformers torchvision opencv-python pillow torch pycocotools
+
+# run the owlv2 video inference
+python owlv2inference.py path/to/video.mp4
