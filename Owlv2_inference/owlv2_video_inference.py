@@ -5,7 +5,7 @@ from transformers import Owlv2Processor, Owlv2ForObjectDetection
 import numpy as np
 import time
 import os
-import argparse  # <-- Add this
+import argparse
 
 # -------------------------------
 # Argument parser
@@ -16,7 +16,7 @@ args = parser.parse_args()
 video_path = args.video_path
 # -------------------------------
 
-# Load the model and processor
+# load the model and processor
 print("Loading model ...")
 processor = Owlv2Processor.from_pretrained("google/owlv2-base-patch16-ensemble")
 model = Owlv2ForObjectDetection.from_pretrained("google/owlv2-base-patch16-ensemble")
@@ -24,7 +24,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Current device: {device}")
 model.to(device).eval()
 
-# Open video
+# open video
 base_name = os.path.splitext(os.path.basename(video_path))[0]
 cap = cv2.VideoCapture(video_path)
 fps = cap.get(cv2.CAP_PROP_FPS)
@@ -40,9 +40,11 @@ cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
 print("Processing video...")
 total_inference_time = 0
+# result storages for box coordinates, score, and label
 last_boxes = []
 last_scores = []
 last_labels = []
+# start timer for total inference time 
 start_processing_time = time.time()
 while cap.isOpened():
     ret, frame = cap.read()
@@ -55,6 +57,7 @@ while cap.isOpened():
         image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         prompts = [["graffiti letters", "painted graffiti drawings", "graffiti"]]
         inputs = processor(images=image, text=prompts, return_tensors="pt").to(device)
+        # start timer for inference time for processing each frame
         start_time = time.time()
         with torch.no_grad():
             outputs = model(**inputs)
@@ -68,10 +71,10 @@ while cap.isOpened():
         last_scores = results["scores"]
         last_labels = results["labels"]
     else:
-        # Use the last known detections
+        # use the last known detections to prevent blinking bounding boxes on the output video
         results = {"boxes": last_boxes, "scores": last_scores, "labels": last_labels}
 
-    # Draw detections (whether new or reused)
+    # draw detection results 
     for box, score, label in zip(results["boxes"], results["scores"], results["labels"]):
         x1, y1, x2, y2 = map(int, box.tolist())
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
