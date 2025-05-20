@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Live YOLO+CLIP Demo</title>
+</head>
+<body>
+  <h1>Real-Time Webcam Detection</h1>
+  <p>
+    <img id="video" src="{{ url_for('video_feed') }}" width="720" />
+  </p>
+  <p>
+    <small>
+      Change thresholds by appending query params, e.g.<br>
+      <code>?yolo=0.3&amp;clip=0.4&amp;interval=2</code>
+    </small>
+  </p>
+</body>
+</html>

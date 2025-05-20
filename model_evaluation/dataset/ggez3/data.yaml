@@ -1,0 +1,5 @@
+names:
+  0: Trash
+  1: Graffiti
+path: .
+train: train.txt
