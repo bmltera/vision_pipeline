@@ -22,3 +22,6 @@ Run the Gradio batch inference demo with:
 
 ## Video Demo
 [Watch Demo on YouTube](https://www.youtube.com/watch?v=z7P4RkwmXOI)
+
+## Dataset
+[Link to training dataset](https://drive.google.com/drive/folders/1DGGo6FSN5iE1alCq1SkLNr73ki-p-laC?usp=sharing)
