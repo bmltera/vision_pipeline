@@ -10,6 +10,8 @@ A multi-model vision inference pipeline integrating YOLO, and CLIP, with evaluat
 
 **yolo11_configs**: YOLOv11 training results
 
+**Owlv2_inference**: OWLv2 video inference
+
 ## Running the Gradio Demo
 ### Prerequisites
 Ensure you are in the gradio directory. Install the required dependencies:
