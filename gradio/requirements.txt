@@ -1,0 +1,11 @@
+# Core dependencies
+torch>=1.13.0
+numpy
+opencv-python
+Pillow
+gradio>=3.0.0
+uuid
+onnxruntime-gpu
+ultralytics
+open_clip_torch
+av
